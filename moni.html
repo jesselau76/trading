@@ -141,7 +141,23 @@
                             <span class="text-indigo-600 font-bold" id="maxCapDisplay">8x</span>
                         </div>
                         <input type="range" min="1" max="64" step="1" value="8" class="w-full h-2 bg-indigo-200 rounded-lg appearance-none cursor-pointer" id="maxCapSlider">
-                        <p class="text-xs text-indigo-600 mt-1">达到基础风险的 <span id="maxCapText">8</span> 倍后停止加倍</p>
+                        <p class="text-xs text-indigo-600 mt-1">达到基础风险的 <span id="maxCapText">8</span> 倍后触发行为</p>
+                    </div>
+
+                    <!-- Cap Behavior (New) -->
+                    <div>
+                        <label class="text-sm font-bold text-indigo-800 mb-2 block">达到上限后行为</label>
+                        <div class="flex gap-4">
+                            <div class="flex items-center">
+                                <input id="capCapped" type="radio" value="capped" name="capBehavior" class="w-4 h-4 text-indigo-600 bg-gray-100 border-gray-300 focus:ring-indigo-500 focus:ring-2" checked>
+                                <label for="capCapped" class="ml-2 text-sm font-medium text-slate-700">硬抗 (保持上限)</label>
+                            </div>
+                            <div class="flex items-center">
+                                <input id="capReset" type="radio" value="reset" name="capBehavior" class="w-4 h-4 text-indigo-600 bg-gray-100 border-gray-300 focus:ring-indigo-500 focus:ring-2">
+                                <label for="capReset" class="ml-2 text-sm font-medium text-slate-700">重置 (回到1x)</label>
+                            </div>
+                        </div>
+                         <p class="text-xs text-indigo-600 mt-1" id="capBehaviorDesc">马丁: 保持最大注码 | 反马丁: 保持最大注码</p>
                     </div>
 
                 </div>
@@ -260,7 +276,8 @@
             mmStrategy: 'fixed_pct', // This is now "Selected for Detail View"
             multiplier: 2.0,
             maxCap: 8,
-            tradeCount: 100
+            tradeCount: 100,
+            capBehavior: 'capped' // 'capped' or 'reset'
         };
 
         // --- DOM Elements ---
@@ -281,6 +298,8 @@
             maxCapDisplay: document.getElementById('maxCapDisplay'),
             maxCapText: document.getElementById('maxCapText'),
             multiplierControl: document.getElementById('multiplierControl'),
+            capBehaviorRadios: document.getElementsByName('capBehavior'),
+            capBehaviorDesc: document.getElementById('capBehaviorDesc'),
             // Outputs
             finalBalance: document.getElementById('finalBalance'),
             maxDrawdown: document.getElementById('maxDrawdown'),
@@ -369,7 +388,16 @@
                         if (lastTradeResult === 'loss') {
                             let proposedRisk = currentRiskAmount * state.multiplier;
                             let maxRisk = baseRiskAmount * state.maxCap;
-                            currentRiskAmount = Math.min(proposedRisk, maxRisk);
+                            // Check behavior
+                            if (proposedRisk > maxRisk) {
+                                if (state.capBehavior === 'reset') {
+                                    currentRiskAmount = baseRiskAmount;
+                                } else {
+                                    currentRiskAmount = maxRisk;
+                                }
+                            } else {
+                                currentRiskAmount = proposedRisk;
+                            }
                         } else {
                             currentRiskAmount = baseRiskAmount;
                         }
@@ -378,7 +406,16 @@
                         if (lastTradeResult === 'win') {
                             let proposedRisk = currentRiskAmount * state.multiplier;
                             let maxRisk = baseRiskAmount * state.maxCap;
-                            currentRiskAmount = Math.min(proposedRisk, maxRisk);
+                            // Check behavior
+                            if (proposedRisk > maxRisk) {
+                                if (state.capBehavior === 'reset') {
+                                    currentRiskAmount = baseRiskAmount;
+                                } else {
+                                    currentRiskAmount = maxRisk;
+                                }
+                            } else {
+                                currentRiskAmount = proposedRisk;
+                            }
                         } else {
                             currentRiskAmount = baseRiskAmount;
                         }
@@ -599,6 +636,7 @@
             let text = "";
             let showMult = false;
             let labelName = "";
+            let capDesc = state.capBehavior === 'reset' ? "重置" : "硬抗";
 
             if (strat === 'fixed_pct') {
                 labelName = "固定比例 (Fixed %)";
@@ -609,13 +647,15 @@
             } else if (strat === 'martingale') {
                 showMult = true;
                 labelName = "马丁格尔 (Martingale)";
-                text = "<strong>马丁格尔 (红色)：</strong> 输了加倍。你会看到PF可能很高（如果是正期望），但夏普比率通常很低，因为波动率（风险）极高。注意观察最大回撤，通常一次失败就会造成巨大回撤。";
+                text = `<strong>马丁格尔 (红色)：</strong> 输了加倍。达到 ${state.maxCap} 倍上限后：<strong>${capDesc}</strong>。<br>硬抗：维持最大注码直到获胜。重置：认输，回到 1x 止损。`;
                 els.multDesc.textContent = `亏损后下注金额 × ${state.multiplier.toFixed(1)}`;
+                els.capBehaviorDesc.textContent = `马丁: 连亏到上限后${state.capBehavior === 'reset' ? '重置(认亏)' : '硬抗(继续大注)'}`;
             } else if (strat === 'anti_martingale') {
                 showMult = true;
                 labelName = "反马丁 (Anti-Mart)";
-                text = "<strong>反马丁 (紫色)：</strong> 赢了加倍。这是一种试图“用市场的钱玩”的策略。在趋势或连胜时，Recovery Factor会非常惊人，但在震荡市中会被反复止损磨损本金。";
+                text = `<strong>反马丁 (紫色)：</strong> 赢了加倍。达到 ${state.maxCap} 倍上限后：<strong>${capDesc}</strong>。<br>硬抗：Ride the streak，继续用最大注码博弈。重置：Paroli，锁定利润，落袋为安。`;
                 els.multDesc.textContent = `盈利后下注金额 × ${state.multiplier.toFixed(1)}`;
+                els.capBehaviorDesc.textContent = `反马丁: 连胜到上限后${state.capBehavior === 'reset' ? '重置(落袋为安)' : '硬抗(乘胜追击)'}`;
             }
 
             els.selectedStratName.textContent = labelName;
@@ -638,6 +678,14 @@
             state.multiplier = parseFloat(els.multSlider.value);
             state.maxCap = parseInt(els.maxCapSlider.value);
             state.tradeCount = parseInt(els.tradeCountSlider.value);
+            
+            // Get selected radio
+            for(const radio of els.capBehaviorRadios) {
+                if(radio.checked) {
+                    state.capBehavior = radio.value;
+                    break;
+                }
+            }
 
             // Update UI Labels
             els.winRateDisplay.textContent = Math.round(state.winRate * 100) + '%';
@@ -662,6 +710,11 @@
         [els.winRateSlider, els.rrSlider, els.riskSlider, els.mmStrategy, els.multSlider, els.maxCapSlider, els.tradeCountSlider].forEach(el => {
             el.addEventListener('input', handleInput);
         });
+        
+        // Add listeners for radio buttons
+        for(const radio of els.capBehaviorRadios) {
+            radio.addEventListener('change', handleInput);
+        }
 
         // --- Init ---
         window.addEventListener('DOMContentLoaded', () => {
