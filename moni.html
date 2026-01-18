@@ -106,10 +106,11 @@
                     <select id="mmStrategy" class="w-full bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-indigo-500 focus:border-indigo-500 block p-2.5">
                         <option value="fixed_pct">固定比例 (Fixed %) - 推荐</option>
                         <option value="fixed_amt">固定金额 (Fixed $)</option>
+                        <option value="kelly">凯利公式 (Kelly Criterion)</option>
                         <option value="martingale">马丁格尔 (亏损加倍)</option>
                         <option value="anti_martingale">反马丁 (连胜加倍)</option>
                     </select>
-                    <p class="text-xs text-slate-400 mt-1">提示：图表中始终同时显示 4 种策略以供对比。</p>
+                    <p class="text-xs text-slate-400 mt-1">提示：图表中始终同时显示 5 种策略以供对比。</p>
                 </div>
 
                 <!-- Base Risk -->
@@ -333,7 +334,7 @@
             }
             
             // 2. Define Strategies
-            const strategies = ['fixed_pct', 'fixed_amt', 'martingale', 'anti_martingale'];
+            const strategies = ['fixed_pct', 'fixed_amt', 'kelly', 'martingale', 'anti_martingale'];
             const allResults = {};
 
             strategies.forEach(strat => {
@@ -383,6 +384,14 @@
                         break;
                     case 'fixed_amt':
                         currentRiskAmount = baseRiskAmount;
+                        break;
+                    case 'kelly':
+                        // Kelly Formula: f* = (bp - q) / b
+                        // where b = odds (rrRatio), p = win rate, q = 1 - p
+                        const kellyPct = (state.rrRatio * state.winRate - (1 - state.winRate)) / state.rrRatio;
+                        // Use Kelly percentage, but cap it to avoid over-betting
+                        const cappedKellyPct = Math.max(0, Math.min(kellyPct, 0.25)); // Cap at 25% for safety
+                        currentRiskAmount = currentBalance * cappedKellyPct;
                         break;
                     case 'martingale':
                         if (lastTradeResult === 'loss') {
@@ -519,6 +528,16 @@
                     order: 2
                 },
                 {
+                    label: '凯利公式 (Kelly)',
+                    data: allResults['kelly'].dataPoints,
+                    borderColor: '#f59e0b', // Amber/Orange
+                    backgroundColor: 'rgba(245, 158, 11, 0.1)',
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    tension: 0.1,
+                    order: 3
+                },
+                {
                     label: '马丁格尔 (Martingale)',
                     data: allResults['martingale'].dataPoints,
                     borderColor: '#f43f5e', // Rose
@@ -526,7 +545,7 @@
                     borderWidth: 2,
                     pointRadius: 0,
                     tension: 0.1,
-                    order: 3
+                    order: 4
                 },
                 {
                     label: '反马丁 (Anti-Mart)',
@@ -536,15 +555,16 @@
                     borderWidth: 2,
                     pointRadius: 0,
                     tension: 0.1,
-                    order: 4
+                    order: 5
                 }
             ];
 
             // Highlight selected strategy
-            const selectedIdx = datasets.findIndex(d => 
+            const selectedIdx = datasets.findIndex(d =>
                 (state.mmStrategy === 'fixed_pct' && d.label.includes('固定比例')) ||
                 (state.mmStrategy === 'fixed_amt' && d.label.includes('固定金额')) ||
-                (state.mmStrategy === 'martingale' && d.label.includes('马丁')) ||
+                (state.mmStrategy === 'kelly' && d.label.includes('凯利')) ||
+                (state.mmStrategy === 'martingale' && d.label.includes('马丁格尔')) ||
                 (state.mmStrategy === 'anti_martingale' && d.label.includes('反马丁'))
             );
             
@@ -625,10 +645,14 @@
             const reward = state.rrRatio;
             const risk = 1;
             const expectancy = (winRate * reward) - ((1 - winRate) * risk);
-            
+
+            // Calculate Kelly percentage
+            const kellyPct = (state.rrRatio * state.winRate - (1 - state.winRate)) / state.rrRatio;
+            const kellyStr = kellyPct > 0 ? `<br><span class="text-xs text-amber-400">凯利: ${(kellyPct * 100).toFixed(2)}%</span>` : '';
+
             const eVal = expectancy.toFixed(2) + ' R';
             const color = expectancy > 0 ? "text-emerald-400" : "text-rose-400";
-            els.expectancyVal.innerHTML = `<span class="${color}">${eVal}</span>`;
+            els.expectancyVal.innerHTML = `<span class="${color}">${eVal}</span>${kellyStr}`;
         }
 
         function updateStrategyInfo() {
@@ -644,6 +668,11 @@
             } else if (strat === 'fixed_amt') {
                 labelName = "固定金额 (Fixed $)";
                 text = "<strong>单利模式 (蓝色虚线)：</strong> 线性增长。风险固定。随着账户增长，实际上是在降低风险比例（De-leveraging）。";
+            } else if (strat === 'kelly') {
+                labelName = "凯利公式 (Kelly Criterion)";
+                const kellyPct = (state.rrRatio * state.winRate - (1 - state.winRate)) / state.rrRatio;
+                const cappedKellyPct = Math.max(0, Math.min(kellyPct, 0.25));
+                text = `<strong>凯利公式 (橙色)：</strong> 数学最优投注比例。公式：f* = (bp - q) / b<br>当前凯利比例：${(kellyPct * 100).toFixed(2)}%（安全上限25%后为：${(cappedKellyPct * 100).toFixed(2)}%）<br>理论上最大化长期增长率，但实践中常使用 1/4 或 1/2 凯利以降低波动。`;
             } else if (strat === 'martingale') {
                 showMult = true;
                 labelName = "马丁格尔 (Martingale)";
